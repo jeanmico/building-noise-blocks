@@ -1,57 +1,85 @@
+# identifies objects in between a point and a road.
+# User-supplied data (must be compatible with read_sf)
+#  - points
+#  - roads
+# buildings are sourced from: https://github.com/microsoft/GlobalMLBuildingFootprints
+
+#================#
+# USER INPUTS ####
+#================#
+
+buffer_radius = 750  # provide radius in meters
+path_to_roads = "C:/Users/jeanmico/projects/footprints_shade/VMT_2023.geojson"
+#path_to_points = ""
+
+#===========#
+# SET UP ####
+#===========#
+# LIBRARIES ####
 library(sf)
 library(ggplot2)
 
-buffer_radius = 750
+#=============#
+# GET DATA ####
+#=============#
 
-#library(osmextract)
-#osm_lines = oe_get("us/washington",
-#                    layer = "lines", 
-#                    stringsAsFactors = FALSE, 
-#                    #extra_tags = c('addr:city', 'addr:postcode', 'addr:state', 'addr:street', 'addr:housenumber'),
-#                    query = "SELECT * FROM 'lines' WHERE highway IS NOT NULL",
-#                    quiet = FALSE)
+# TODO: read in points
+#my_points = sf_read(path_to_points)
+my_points = data.frame(id = c(143, 455),
+                      lon = c(-71.778246, -71.776622),
+                      lat = c(42.254431, 42.251837))
+my_points = st_as_sf(my_points, coords = c("lat", "lon"), crs=4326)
 
-building_prints = read_sf("C:/Users/jeanmico/projects/footprints_shade/example_massach.geojson")
+# TODO: construct bounding box based on points of interest and buffer
+  # this is a placeholder 
+
+# TODO: execute call to download building footprints
+path_to_buildings = "C:/Users/jeanmico/projects/building_noise_blocks/building-noise-blocks/example_massach.geojson"
+building_prints = read_sf(path_to_buildings)
+
 my_bounds = st_as_sfc(st_bbox(building_prints))
 st_crs(my_bounds) = 4326
 
-roads = read_sf("C:/Users/jeanmico/projects/footprints_shade/VMT_2023.geojson")
-tmp = roads
+roads = read_sf(path_to_roads)
+st_crs(roads) = 4326
+st_crs(building_prints) = 4326
 st_crs(building_prints) == st_crs(roads)
+
+
+# clip if needed to reduce file sizes
 roads_clip = roads[my_bounds,]
 buildings_clip = building_prints[my_bounds,]
 my_centers = st_centroid(buildings_clip)
 
-fulldf = st_join(roads_clip, buildings_clip, left = TRUE)
-full_clip = fulldf[my_bounds,]
-
-flatdf = st_transform(full_clip, crs = 102039)
-
+# garbage cleanup
+#roads = NULL 
+#building_prints = NULL
+#gc()
 
 # sync up the columns yay
-cols_add_builds = setdiff(colnames(roads), colnames(building_prints))
-cols_add_roads = setdiff(colnames(building_prints), colnames(roads))
+cols_add_builds = setdiff(colnames(roads_clip), colnames(buildings_clip))
+cols_add_roads = setdiff(colnames(buildings_clip), colnames(roads_clip))
 
-roads[cols_add_roads] <- NA
-building_prints[cols_add_builds] <- NA
-building_prints = building_prints[, colnames(roads)]
+roads_clip[cols_add_roads] <- NA
+buildings_clip[cols_add_builds] <- NA
+buildings_clip = buildings_clip[, colnames(roads_clip)]
 
-fulldf = rbind(building_prints, roads)
+fulldf = rbind(buildings_clip, roads_clip)
 
-colnames(building_prints) == colnames(roads)
+colnames(buildings_clip) == colnames(roads_clip)
 
+# into a units-based coorinate system
+flatdf = st_transform(fulldf, crs = 102039)
+my_points = st_transform(my_points, crs = 102039)
 
-mycoords = data.frame(id = c(143, 455),
-                      lon = c(-71.778246, -71.776622),
-                      lat = c(42.254431, 42.251837))
-mycoords = st_as_sf(mycoords, coords = c("lat", "lon"), crs=4326)
+mybuffers = st_buffer(my_points, buffer_radius)
+mybuffers = st_join(mybuffers, flatdf)
 
-mycoords = st_transform(mycoords, crs = 102039)
-
-mybuffers = st_buffer(mycoords, buffer_radius)
-
-mygeo = st_join(mybuffers, flatsf)
+#mygeo = st_join(my_points, fulldf)
 
 myplt = ggplot() + 
-  geom_sf(data = full_clip)
+  geom_sf(data = mybuffers) + 
+  geom_sf(data = my_points) + 
+  geom_sf(data = flatdf) + 
+  theme_bw()
 myplt
